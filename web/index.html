@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>탄도미사일 3D 비행 시뮬레이터 & 텔레메트리 대시보드</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=JetBrains+Mono:wght@400;600;700&family=Pretendard:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="src/css/style.css">
+  <!-- Three.js & OrbitControls & Lucide Icons -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+  <!-- 3D 캔버스 영역 -->
+  <div id="canvas-container"></div>
+
+  <!-- 헤더 바 -->
+  <header class="top-nav">
+    <div class="brand">
+      <div class="radar-dot"></div>
+      <span class="brand-title">MISSILE TRAJECTORY SIMULATOR</span>
+      <span class="badge">TACTICAL 3D</span>
+    </div>
+    
+    <div class="header-selectors">
+      <div class="control-group">
+        <label for="missile-select">MISSILE CSV</label>
+        <select id="missile-select">
+          <option value="Khalij_Fars" selected>Khalij Fars (대함 ASBM - 10K RealScale)</option>
+          <option value="Qiam_1">Qiam-1 (지대지 SRBM - 10K RealScale)</option>
+          <option value="Shahab_3">Shahab-3 (중거리 MRBM - 10K RealScale)</option>
+          <option value="Zolfaghar">Zolfaghar (고체 MRBM - 10K RealScale)</option>
+        </select>
+      </div>
+
+      <div class="control-group">
+        <label for="sim-select">SIMULATION ID</label>
+        <select id="sim-select">
+          <!-- 동적으로 생성 -->
+        </select>
+      </div>
+
+      <div class="control-group">
+        <label for="camera-mode">VIEW MODE</label>
+        <select id="camera-mode">
+          <option value="orbital">3D Orbit (자유 시점)</option>
+          <option value="follow">Follow Missile (추적)</option>
+          <option value="top">Top Down (위성 뷰)</option>
+          <option value="launch">Launch Site (발사대 뷰)</option>
+          <option value="target">Target Zone (탄착지 뷰)</option>
+        </select>
+      </div>
+    </div>
+  </header>
+
+  <!-- 우측 상단 실시간 컬럼 텔레메트리 HUD (핵심 요구사항) -->
+  <aside class="telemetry-panel" id="telemetry-panel">
+    <div class="panel-header">
+      <div class="panel-title-wrap">
+        <i data-lucide="activity" class="panel-icon"></i>
+        <div>
+          <h2 class="panel-title">LIVE TELEMETRY STREAM</h2>
+          <span class="panel-subtitle" id="telemetry-timestamp">T+ 000.0s | REAL-SCALE DATA</span>
+        </div>
+      </div>
+      <div class="status-indicator live">
+        <span class="ping-dot"></span>
+        REC ACTIVE
+      </div>
+    </div>
+
+    <!-- 하이라이트 지표 카드 -->
+    <div class="metric-grid-cards">
+      <div class="metric-card highlight">
+        <span class="metric-label">MACH NUMBER</span>
+        <span class="metric-value" id="val-mach">0.00</span>
+        <span class="metric-unit">Mach (마하)</span>
+      </div>
+      <div class="metric-card highlight">
+        <span class="metric-label">ALTITUDE (Z)</span>
+        <span class="metric-value" id="val-altitude">0.00</span>
+        <span class="metric-unit">km (고도)</span>
+      </div>
+      <div class="metric-card">
+        <span class="metric-label">SPEED (|V|)</span>
+        <span class="metric-value" id="val-speed">0.0</span>
+        <span class="metric-unit">m/s</span>
+      </div>
+      <div class="metric-card">
+        <span class="metric-label">DOWNRANGE</span>
+        <span class="metric-value" id="val-distance">0.00</span>
+        <span class="metric-unit">km (수평거리)</span>
+      </div>
+    </div>
+
+    <!-- 스크롤 가능한 전체 컬럼 뷰 -->
+    <div class="telemetry-sections-scroll custom-scroll">
+      <!-- 1. 위치 & 궤적 좌표 -->
+      <section class="telemetry-section">
+        <div class="section-title">
+          <span>SPATIAL COORDINATES (위치 좌표)</span>
+        </div>
+        <div class="data-table">
+          <div class="data-row"><span class="k">x (Downrange X)</span><span class="v" id="col-x">-</span><span class="u">m</span></div>
+          <div class="data-row"><span class="k">y (Crossrange Y)</span><span class="v" id="col-y">-</span><span class="u">m</span></div>
+          <div class="data-row"><span class="k">z (Altitude Z)</span><span class="v" id="col-z">-</span><span class="u">m</span></div>
+          <div class="data-row highlight-row"><span class="k">Target Distance Left</span><span class="v" id="col-dist-target">-</span><span class="u">km</span></div>
+        </div>
+      </section>
+
+      <!-- 2. 속도 벡터 -->
+      <section class="telemetry-section">
+        <div class="section-title">
+          <span>VELOCITY VECTOR (속도 벡터)</span>
+        </div>
+        <div class="data-table">
+          <div class="data-row"><span class="k">vx</span><span class="v" id="col-vx">-</span><span class="u">m/s</span></div>
+          <div class="data-row"><span class="k">vy</span><span class="v" id="col-vy">-</span><span class="u">m/s</span></div>
+          <div class="data-row"><span class="k">vz</span><span class="v" id="col-vz">-</span><span class="u">m/s</span></div>
+          <div class="data-row"><span class="k">Mach</span><span class="v" id="col-mach">-</span><span class="u">M</span></div>
+        </div>
+      </section>
+
+      <!-- 3. 가속도 벡터 -->
+      <section class="telemetry-section">
+        <div class="section-title">
+          <span>ACCELERATION VECTOR (가속도)</span>
+        </div>
+        <div class="data-table">
+          <div class="data-row"><span class="k">ax</span><span class="v" id="col-ax">-</span><span class="u">m/s²</span></div>
+          <div class="data-row"><span class="k">ay</span><span class="v" id="col-ay">-</span><span class="u">m/s²</span></div>
+          <div class="data-row"><span class="k">az</span><span class="v" id="col-az">-</span><span class="u">m/s²</span></div>
+          <div class="data-row"><span class="k">Total Acceleration</span><span class="v" id="col-atot">-</span><span class="u">G</span></div>
+        </div>
+      </section>
+
+      <!-- 4. 자세 각도 & 동역학 -->
+      <section class="telemetry-section">
+        <div class="section-title">
+          <span>ATTITUDE & AERODYNAMICS (자세 및 공기역학)</span>
+        </div>
+        <div class="data-table">
+          <div class="data-row"><span class="k">pitch (앙각)</span><span class="v" id="col-pitch">-</span><span class="u">deg</span></div>
+          <div class="data-row"><span class="k">yaw (편각)</span><span class="v" id="col-yaw">-</span><span class="u">deg</span></div>
+          <div class="data-row"><span class="k">dynamic_pressure (q)</span><span class="v" id="col-dynamic-pressure">-</span><span class="u">Pa</span></div>
+          <div class="data-row"><span class="k">drag_force (항력)</span><span class="v" id="col-drag-force">-</span><span class="u">N</span></div>
+          <div class="data-row"><span class="k">current_mass</span><span class="v" id="col-current-mass">-</span><span class="u">kg</span></div>
+          <div class="data-row"><span class="k">cd_factor</span><span class="v" id="col-cd-factor">-</span><span class="u">-</span></div>
+        </div>
+      </section>
+
+      <!-- 5. 기상 및 환경 (Weather & Atmosphere) -->
+      <section class="telemetry-section">
+        <div class="section-title">
+          <span>WEATHER & ATMOSPHERE (대기/기상)</span>
+        </div>
+        <div class="data-table">
+          <div class="data-row"><span class="k">air_density (밀도)</span><span class="v" id="col-air-density">-</span><span class="u">kg/m³</span></div>
+          <div class="data-row"><span class="k">weather_pressure</span><span class="v" id="col-weather-pressure">-</span><span class="u">Pa</span></div>
+          <div class="data-row"><span class="k">weather_temperature</span><span class="v" id="col-weather-temp">-</span><span class="u">K</span></div>
+          <div class="data-row"><span class="k">weather_wind_speed</span><span class="v" id="col-wind-speed">-</span><span class="u">m/s</span></div>
+          <div class="data-row"><span class="k">wind_u / wind_v</span><span class="v" id="col-wind-uv">-</span><span class="u">m/s</span></div>
+        </div>
+      </section>
+
+      <!-- 6. 목표 및 발사 파라미터 -->
+      <section class="telemetry-section">
+        <div class="section-title">
+          <span>TARGET & LAUNCH SPECS (목표/발사 변수)</span>
+        </div>
+        <div class="data-table">
+          <div class="data-row"><span class="k">Target_X</span><span class="v" id="col-target-x">-</span><span class="u">m</span></div>
+          <div class="data-row"><span class="k">Target_Y</span><span class="v" id="col-target-y">-</span><span class="u">m</span></div>
+          <div class="data-row"><span class="k">Target_T</span><span class="v" id="col-target-t">-</span><span class="u">sec</span></div>
+          <div class="data-row"><span class="k">launch_elevation</span><span class="v" id="col-launch-elev">-</span><span class="u">deg</span></div>
+          <div class="data-row"><span class="k">launch_azimuth</span><span class="v" id="col-launch-azim">-</span><span class="u">deg</span></div>
+        </div>
+      </section>
+    </div>
+  </aside>
+
+  <!-- 좌측 하단 미션 요약 오버레이 -->
+  <div class="mission-info-box glass-panel">
+    <div class="info-title">MISSION OVERVIEW</div>
+    <div class="info-grid">
+      <div><span class="dim">Type:</span> <strong id="info-type">Khalij Fars</strong></div>
+      <div><span class="dim">Class:</span> <span id="info-class">대함 탄도미사일 (ASBM)</span></div>
+      <div><span class="dim">Max Alt:</span> <strong id="info-apogee">0.0 km</strong></div>
+      <div><span class="dim">Flight Time:</span> <span id="info-duration">0.0 s</span></div>
+      <div><span class="dim">Target Dist:</span> <span id="info-tot-dist">0.0 km</span></div>
+      <div><span class="dim">Impact Error:</span> <span id="info-impact-err">0.0 m</span></div>
+    </div>
+  </div>
+
+  <!-- 하단 재생 컨트롤러 바 -->
+  <footer class="bottom-controls glass-panel">
+    <div class="playback-buttons">
+      <button id="btn-prev" class="ctrl-btn" title="이전 단계"><i data-lucide="skip-back"></i></button>
+      <button id="btn-play" class="ctrl-btn primary" title="재생/일시정지"><i data-lucide="play" id="play-icon"></i></button>
+      <button id="btn-next" class="ctrl-btn" title="다음 단계"><i data-lucide="skip-forward"></i></button>
+      <button id="btn-reset" class="ctrl-btn" title="처음으로"><i data-lucide="rotate-ccw"></i></button>
+    </div>
+
+    <!-- 타임라인 슬라이더 -->
+    <div class="timeline-container">
+      <span class="time-display" id="time-current">00:00.0</span>
+      <div class="slider-wrapper">
+        <input type="range" id="time-slider" min="0" max="100" value="0" step="1">
+        <div class="slider-progress" id="slider-progress"></div>
+      </div>
+      <span class="time-display" id="time-total">05:23.0</span>
+    </div>
+
+    <!-- 속도 조절 -->
+    <div class="speed-selector">
+      <span class="speed-label">SPEED</span>
+      <button class="speed-btn" data-speed="0.5">0.5x</button>
+      <button class="speed-btn active" data-speed="1">1x</button>
+      <button class="speed-btn" data-speed="3">3x</button>
+      <button class="speed-btn" data-speed="10">10x</button>
+    </div>
+  </footer>
+
+  <script src="src/js/app.js"></script>
+</body>
+</html>
